@@ -111,6 +111,8 @@ def st_log(level, message):
         st.warning(message)
     elif level == "success":
         st.success(message)
+    elif level == "error":
+        st.error(message)
 
 def createCalculator(option_data: Any | None, price: int) -> GEXCalculator:
     calc = GEXCalculator()
@@ -337,7 +339,7 @@ def main():
         else:
             st.session_state.historical_pos += offset
 
-    col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([2,0.1,0.4,0.3,1.5,0.3,0.4,0.5])
+    col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5,0.1,0.4,0.3,1.5,0.3,0.4,0.5])
     with col1:
         gex_live = st.radio(
             "GEX Live",

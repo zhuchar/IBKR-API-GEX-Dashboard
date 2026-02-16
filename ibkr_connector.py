@@ -27,12 +27,13 @@ async def main(callback, symbol,option_prefix,expiration,strikes_up,strikes_down
         price = None
         end_time = time.time() + 5
         while time.time() < end_time:
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.1)
             # ib.sleep(1) # Sleep allows the ib_insync loop to process messages
 
             if not math.isnan(ticker.last):
                 price = ticker.last
-                # print(f"Last price: {ticker.last}, Bid: {ticker.bid}, Ask: {ticker.ask}")
+                break
+        ib.cancelMktData(contract)
 
         if price:
             callback("success", f"✅ {symbol} Price: ${price:,.2f}")
@@ -48,7 +49,9 @@ async def main(callback, symbol,option_prefix,expiration,strikes_up,strikes_down
 
         # expiration (YYMMDD)
         if not "20"+expiration in chain.expirations:
-            raise ValueError("Invalid expiration: " + expiration + ", first expiration is " + chain.expirations[0])
+            callback("error", f"⚠️ Invalid expiration: {expiration}, first expiration is {chain.expirations[0]}")
+            time.sleep(2)
+            return price, {}
 
         pos = bisect.bisect_left(chain.strikes, price)
         strikes = chain.strikes[pos-strikes_up:pos+strikes_down]
