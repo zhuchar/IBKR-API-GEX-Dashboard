@@ -3,6 +3,8 @@ Simple GEX Dashboard - Direct WebSocket approach (no background threads)
 Fetches data once when you click "Fetch Data", then displays it
 Works on weekends with Friday's closing data
 """
+from typing import Any
+
 import streamlit as st
 import json
 import time
@@ -11,6 +13,7 @@ from websocket import create_connection
 import pandas as pd
 import plotly.graph_objects as go
 
+from gex_db import listDB, saveDB, getDB
 from ibkr_connector import fetch_option_data
 from utils.auth import ensure_streamer_token
 from utils.gex_calculator import GEXCalculator
@@ -109,6 +112,18 @@ def st_log(level, message):
     elif level == "success":
         st.success(message)
 
+def createCalculator(option_data: Any | None, price: int) -> GEXCalculator:
+    calc = GEXCalculator()
+    calc.update_spot_price(price)
+
+    for symbol_name, data in option_data.items():
+        if "gamma" in data and "oi" in data:
+            gamma = data["gamma"]
+            oi = data["oi"]
+            if gamma is not None and oi is not None:
+                calc.update_gamma(symbol_name, gamma, oi)
+    return calc
+
 def main():
     st.title("📊 Options Gamma Exposure Dashboard")
 
@@ -123,6 +138,8 @@ def main():
         st.session_state.last_fetch_time = 0
     if 'option_data' not in st.session_state:
         st.session_state.option_data = {}
+    if 'gex_live' not in st.session_state:
+        st.session_state.gex_live = "Live"
     if 'gex_view' not in st.session_state:
         st.session_state.gex_view = "Calls vs Puts"
     if 'volume_view' not in st.session_state:
@@ -180,7 +197,7 @@ def main():
                 "Refresh interval (seconds)",
                 min_value=30,
                 max_value=300,
-                value=60,
+                value=300,
                 step=10,
                 help="How often to refresh data"
             )
@@ -193,10 +210,38 @@ def main():
         fetch_triggered = st.button("🔄 Fetch Data", type="primary", width='stretch')
 
         # Auto-fetch logic
+        auto_triggered = False
         if st.session_state.auto_refresh:
             current_time = time.time()
             if current_time - st.session_state.last_fetch_time >= refresh_interval:
                 fetch_triggered = True
+                auto_triggered = True
+
+        def gex_live_callback():
+            if 'gex_live_radio' not in st.session_state or st.session_state['gex_live_radio'] == "Live":
+                st.session_state.historical_data = None
+            else:
+                st.session_state.historical_data = listDB(datetime.strptime(expiration, "%y%m%d"))
+                st.session_state.historical_pos = len(st.session_state.historical_data) - 1
+
+                st.session_state.historical_gex_df = []
+                st.session_state.historical_metrics = []
+                st.session_state.historical_max_call_gex = 0
+                st.session_state.historical_max_put_gex = 0
+                st.session_state.historical_min_net_gex = float('inf')
+                st.session_state.historical_max_net_gex = 0
+
+                for (_, option) in st.session_state.historical_data:
+                    calc = createCalculator(option, st.session_state.underlying_price)
+                    gex_df = calc.get_gex_by_strike()
+                    metrics = calc.get_total_gex_metrics()
+
+                    st.session_state.historical_gex_df.append(gex_df)
+                    st.session_state.historical_metrics.append(metrics)
+                    st.session_state.historical_max_call_gex = max(st.session_state.historical_max_call_gex, gex_df['call_gex'].max())
+                    st.session_state.historical_max_put_gex = max(st.session_state.historical_max_put_gex, gex_df['put_gex'].max())
+                    st.session_state.historical_min_net_gex = min(st.session_state.historical_min_net_gex, gex_df['net_gex'].min())
+                    st.session_state.historical_max_net_gex = max(st.session_state.historical_max_net_gex, gex_df['net_gex'].max())
 
         if fetch_triggered:
             with st.spinner(f"Fetching {symbol} data..."):
@@ -210,16 +255,18 @@ def main():
                         strikes_down
                     )
 
-                    # Calculate GEX
-                    calc = GEXCalculator()
-                    calc.update_spot_price(price)
+                    # TESTING: load test data
+                    # price = 6800
+                    # option_data = getDB(datetime(2026,2,14, 22,16,0))
+                    # option_data = listDB(datetime(2026,2,14, 22,16,0))[0]
 
-                    for symbol_name, data in option_data.items():
-                        if "gamma" in data and "oi" in data:
-                            gamma = data["gamma"]
-                            oi = data["oi"]
-                            if gamma is not None and oi is not None:
-                                calc.update_gamma(symbol_name, gamma, oi)
+                    # Calculate GEX
+                    calc = createCalculator(option_data, price)
+
+                    if not auto_triggered:
+                        gex_live_callback()
+                    else:
+                        saveDB(current_time, option_data)
 
                     # Store in session state
                     st.session_state.gex_calculator = calc
@@ -278,10 +325,65 @@ def main():
         st.caption("💡 Works on weekends! Shows Friday's closing data.")
         return
 
+    def navigate(offset):
+        if st.session_state.historical_pos + offset < 0:
+            st.session_state.historical_pos = 0
+        elif st.session_state.historical_pos + offset >= len(st.session_state.historical_data):
+            st.session_state.historical_pos = len(st.session_state.historical_data) - 1
+        else:
+            st.session_state.historical_pos += offset
+
+    col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([2,0.1,0.4,0.3,1.5,0.3,0.4,0.5])
+    with col1:
+        gex_live = st.radio(
+            "GEX Live",
+            ["Live", "Historical"],
+            index = ["Live", "Historical"].index(st.session_state.gex_live),
+            key="gex_live_radio",
+            horizontal=True,
+            help="Live vs Historical",
+            on_change=gex_live_callback
+        )
+        st.session_state.gex_live = gex_live
+    with col3:
+        if st.session_state.gex_live == "Historical":
+            if st.button("<<", type="secondary"):
+                navigate(-5)
+    with col4:
+        if st.session_state.gex_live == "Historical":
+            if st.button("<", type="secondary"):
+                navigate(-1)
+    with col6:
+        if st.session_state.gex_live == "Historical":
+            if st.button("\>", type="secondary"):
+                navigate(1)
+    with col7:
+        if st.session_state.gex_live == "Historical":
+            if st.button("\>\>", type="secondary"):
+                navigate(5)
+    with col5:
+        if st.session_state.gex_live == "Historical":
+            data = st.session_state.historical_data
+            pos = st.session_state.historical_pos
+            if pos >= 0:
+                st.subheader(f"{data[pos][0]} {pos+1} of {len(data)}")
+            else:
+                st.subheader("no record")
+
     # Get GEX data
     calc = st.session_state.gex_calculator
-    gex_df = calc.get_gex_by_strike()
-    metrics = calc.get_total_gex_metrics()
+    gex_df, metrics = pd.DataFrame(), {}
+    if st.session_state.gex_live == "Historical":
+        data = st.session_state.historical_data
+        pos = st.session_state.historical_pos
+        print(f"Historical pos: {pos}")
+
+        if pos >= 0:
+            gex_df = st.session_state.historical_gex_df[pos]
+            metrics = st.session_state.historical_metrics[pos]
+    else:
+        gex_df = calc.get_gex_by_strike()
+        metrics = calc.get_total_gex_metrics()
 
     if gex_df.empty:
         st.warning("⚠️ No GEX data available. Try fetching again or check different expiration.")
@@ -385,6 +487,14 @@ def main():
             height=500
         )
 
+        if st.session_state.gex_live == "Historical":
+            if gex_view == "Calls vs Puts":
+                fig.update_yaxes(range=[-st.session_state.historical_max_put_gex, st.session_state.historical_max_call_gex])
+            elif gex_view == "Net GEX":
+                fig.update_yaxes(range=[st.session_state.historical_min_net_gex, st.session_state.historical_max_net_gex])
+            else:
+                fig.update_yaxes(range=[0,max(-st.session_state.historical_min_net_gex, st.session_state.historical_max_net_gex)])
+
         st.plotly_chart(fig, width='stretch')
 
     with col2:
@@ -409,7 +519,13 @@ def main():
 
     # Volume and Open Interest Section
     # Aggregate data by strike (used for IV Skew and Volume/OI)
-    strike_df = aggregate_by_strike(st.session_state.option_data)
+    strike_df = None
+    if st.session_state.gex_live == "Historical":
+        data = st.session_state.historical_data
+        pos = st.session_state.historical_pos
+        strike_df = aggregate_by_strike(data[pos][1])
+    else:
+        strike_df = aggregate_by_strike(st.session_state.option_data)
 
     # IV Skew Section
     if not strike_df.empty and (strike_df['call_iv'].notna().any() or strike_df['put_iv'].notna().any()):

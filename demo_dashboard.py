@@ -3,6 +3,7 @@ Demo GEX Dashboard - Uses public dxFeed demo endpoint
 NO API CREDENTIALS NEEDED - Data is delayed
 SPX only - Perfect for testing and demonstrations
 """
+import ssl
 import streamlit as st
 import json
 import time
@@ -29,7 +30,7 @@ DXFEED_URL = "wss://demo.dxfeed.com/dxlink-ws"
 
 def connect_websocket():
     """Connect to dxFeed Demo WebSocket (no authentication needed)"""
-    ws = create_connection(DXFEED_URL, timeout=10)
+    ws = create_connection(DXFEED_URL, timeout=10, sslopt={"cert_reqs": ssl.CERT_NONE})
 
     # SETUP
     ws.send(json.dumps({

@@ -268,3 +268,19 @@ pip install -r requirements.txt
 
 This project is for educational and personal use. Use at your own risk. Not financial advice.
 
+## Docker
+```
+docker run --name some-postgres -e POSTGRES_PASSWORD=mysecretpassword -p 5432:5432 -d postgres
+```
+
+## Database - PostgreSQL
+```
+create table gex
+(
+    id   integer generated always as identity,
+    time timestamp not null
+        constraint gex_pk
+            unique,
+    data jsonb     not null
+);
+```

@@ -11,7 +11,7 @@ from ib_insync import *
 async def main(callback, symbol,option_prefix,expiration,strikes_up,strikes_down):
     ib = IB()
     try:
-        await ib.connectAsync('127.0.0.1', 7496, clientId=10, timeout=1000, readonly=True)
+        await ib.connectAsync('127.0.0.1', 7496, clientId=2, timeout=1000, readonly=True)
         print("Connected")
 
         # TODO: use symbol not SPX hardcoding
