@@ -220,6 +220,7 @@ def main():
         def gex_live_callback():
             if 'gex_live_radio' not in st.session_state or st.session_state['gex_live_radio'] == "Live":
                 st.session_state.historical_data = None
+                st.session_state.historical_pos = -1
             else:
                 st.session_state.historical_data = listDB(datetime.strptime(expiration, "%y%m%d"))
                 st.session_state.historical_pos = len(st.session_state.historical_data) - 1
@@ -326,6 +327,9 @@ def main():
         return
 
     def navigate(offset):
+        if st.session_state.historical_pos <0:
+            return
+
         if st.session_state.historical_pos + offset < 0:
             st.session_state.historical_pos = 0
         elif st.session_state.historical_pos + offset >= len(st.session_state.historical_data):
