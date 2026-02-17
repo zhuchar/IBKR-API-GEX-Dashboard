@@ -12,18 +12,9 @@ from websocket import create_connection
 import pandas as pd
 import plotly.graph_objects as go
 from utils.gex_calculator import GEXCalculator
+from common import PRESET_SYMBOLS
 
 st.set_page_config(page_title="GEX Demo Dashboard", page_icon="🧪", layout="wide")
-
-# Preset symbol configuration
-PRESET_SYMBOLS = {
-    "SPX": {"option_prefix": "SPXW", "default_price": 6000, "increment": 5},
-    "NDX": {"option_prefix": "NDXP", "default_price": 20000, "increment": 25},
-    "SPY": {"option_prefix": "SPY", "default_price": 680, "increment": 1},
-    "QQQ": {"option_prefix": "QQQ", "default_price": 612, "increment": 1},
-    "IWM": {"option_prefix": "IWM", "default_price": 240, "increment": 1},
-    "DIA": {"option_prefix": "DIA", "default_price": 450, "increment": 1},
-}
 
 DXFEED_URL = "wss://demo.dxfeed.com/dxlink-ws"
 

@@ -13,22 +13,13 @@ from websocket import create_connection
 import pandas as pd
 import plotly.graph_objects as go
 
-from gex_db import listDB, saveDB, getDB
+from common import PRESET_SYMBOLS
+from gex_db import listDB, saveDB
 from ibkr_connector import fetch_option_data
 from utils.auth import ensure_streamer_token
 from utils.gex_calculator import GEXCalculator
 
 st.set_page_config(page_title="GEX Dashboard", page_icon="📊", layout="wide")
-
-# Preset symbol configuration
-PRESET_SYMBOLS = {
-    "SPX": {"option_prefix": "SPXW", "default_price": 6000, "increment": 5},
-    "NDX": {"option_prefix": "NDXP", "default_price": 20000, "increment": 25},
-    "SPY": {"option_prefix": "SPY", "default_price": 680, "increment": 1},
-    "QQQ": {"option_prefix": "QQQ", "default_price": 612, "increment": 1},
-    "IWM": {"option_prefix": "IWM", "default_price": 240, "increment": 1},
-    "DIA": {"option_prefix": "DIA", "default_price": 450, "increment": 1},
-}
 
 def aggregate_by_strike(option_data):
     """Aggregate volume and OI by strike from option data"""
@@ -224,7 +215,7 @@ def main():
                 st.session_state.historical_data = None
                 st.session_state.historical_pos = -1
             else:
-                st.session_state.historical_data = listDB(datetime.strptime(expiration, "%y%m%d"))
+                st.session_state.historical_data = listDB(symbol, expiration)
                 st.session_state.historical_pos = len(st.session_state.historical_data) - 1
 
                 st.session_state.historical_gex_df = []
@@ -252,7 +243,6 @@ def main():
                     price, option_data = fetch_option_data(
                         st_log,
                         symbol,
-                        option_prefix,
                         expiration,
                         strikes_up,
                         strikes_down
@@ -269,7 +259,7 @@ def main():
                     if not auto_triggered:
                         gex_live_callback()
                     else:
-                        saveDB(current_time, option_data)
+                        saveDB(symbol, datetime.now(), expiration, option_data)
 
                     # Store in session state
                     st.session_state.gex_calculator = calc

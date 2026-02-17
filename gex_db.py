@@ -21,13 +21,13 @@ def connect():
     )
     return conn
 
-def getDB(target_date):
+def getDB(symbol, timestamp):
     conn = connect()
     cur = conn.cursor()
 
-    print(f"Fetching gex table for {target_date:%Y-%m-%d %H:%M:%S}")
-    sql_query_text = "SELECT data FROM gex WHERE time = %s;"
-    cur.execute(sql_query_text, (target_date,))
+    print(f"Fetching gex table for {timestamp:%Y-%m-%d %H:%M:%S}")
+    sql_query_text = "SELECT data FROM gex WHERE symbol = %s AND time = %s;"
+    cur.execute(sql_query_text, (symbol, timestamp,))
 
     data_dict = None
     data_result = cur.fetchone()
@@ -41,21 +41,17 @@ def getDB(target_date):
 
     return data_dict
 
-def listDB(target_date):
-    start_of_day = datetime.combine(target_date, datetime.min.time())
-    end_of_day = start_of_day + timedelta(days=1)
-
-    print(target_date,start_of_day,end_of_day)
-
+def listDB(symbol, expiration):
     conn = connect()
     try:
         sql = """
               SELECT time, data FROM gex
-              WHERE time >= %s AND time < %s; \
+              WHERE symbol = %s AND expiration = %s
+              ORDER BY time ASC;
               """
         with conn.cursor() as cur:
             # Pass the start and end datetime objects as parameters
-            cur.execute(sql, (start_of_day, end_of_day))
+            cur.execute(sql, (symbol, expiration))
             records = cur.fetchall()
             return records
 
@@ -65,17 +61,19 @@ def listDB(target_date):
         print(f"Database error: {e}")
         return []
 
-def saveDB(target_date, data):
-    datetime_zero_seconds = target_date.replace(second=0, microsecond=0)
+def saveDB(symbol, timestamp, expiration, data):
+    print("saveDB...", symbol,timestamp, expiration)
+
+    datetime_zero_seconds = timestamp.replace(second=0, microsecond=0)
 
     conn = connect()
     try:
         with conn.cursor() as cur:
             # Use %s as a placeholder for the entire Json object
-            insert_sql = "INSERT INTO gex (time, data) VALUES (%s, %s);"
+            insert_sql = "INSERT INTO gex (symbol, time, expiration, data) VALUES (%s, %s, %s, %s);"
 
             # Pass the wrapped data as a parameter
-            cur.execute(insert_sql, (datetime_zero_seconds, Json(data),))
+            cur.execute(insert_sql, (symbol, datetime_zero_seconds, expiration, Json(data),))
 
         conn.commit()
     except Exception as e:
