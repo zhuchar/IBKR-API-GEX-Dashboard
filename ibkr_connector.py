@@ -1,7 +1,10 @@
 import asyncio
 import bisect
 import math
+from collections import defaultdict
+
 from common import PRESET_SYMBOLS
+import yfinance as yf
 
 # Optional: Set a new event loop if not already in an async environment (e.g., in a notebook or certain frameworks)
 loop = asyncio.new_event_loop()
@@ -27,6 +30,11 @@ async def main(callback,symbol,expiration,strikes_up,strikes_down):
 
         await ib.qualifyContractsAsync(contract)
         ticker = ib.reqMktData(contract, '', snapshot=False, regulatorySnapshot=False)
+
+        # Yahoo
+        TICKER = "^" + symbol
+        tickerY = yf.Ticker(TICKER)
+        option_dataY = tickerY.option_chain(f"20{expiration[:2]}-{expiration[2:4]}-{expiration[4:]}")
 
         # Get underlying price
         callback("info",f"📊 Getting {symbol} price...")
@@ -78,44 +86,60 @@ async def main(callback,symbol,expiration,strikes_up,strikes_down):
 
         option_contracts = await ib.qualifyContractsAsync(*option_contracts)
 
-        tickers = []
-        for contract in option_contracts:
-            ticker = ib.reqMktData(contract, '100,101', snapshot=False, regulatorySnapshot=False)
-            tickers.append(ticker)
+        data = defaultdict(dict)
+        size = 20
+        l,r = 0,size if size<len(option_contracts) else len(option_contracts)
+        while l<len(option_contracts):
+            print(f"{l}...")
+            tickers = []
+            for contract in option_contracts[l:r]:
+                ticker = ib.reqMktData(contract, '100,101', snapshot=False, regulatorySnapshot=False)
+                tickers.append(ticker)
 
-        await asyncio.sleep(5)
+            await asyncio.sleep(3)
 
-        data = {}
-        for ticker in tickers:
-            if ticker.bid is not None and ticker.ask is not None:
-                if ticker.modelGreeks is None:
-                    # raise ValueError("No Greeks")
-                    print(f"Warning: {ticker.contract.localSymbol} has no Greeks. last = {ticker.last}, market price = {ticker.marketPrice()}, bid = {ticker.bid}, ask = {ticker.ask}")
-                    continue
+            for ticker in tickers:
+                if ticker.bid is not None and ticker.ask is not None:
+                    if ticker.modelGreeks is None:
+                        # raise ValueError("No Greeks")
+                        print(f"Warning: {ticker.contract.localSymbol} has no Greeks. last = {ticker.last}, market price = {ticker.marketPrice()}, bid = {ticker.bid}, ask = {ticker.ask}")
+                        continue
 
-                if (ticker.contract.right == "C" and math.isnan(ticker.callOpenInterest)) or (ticker.contract.right == "P" and math.isnan(ticker.putOpenInterest)):
-                    print(f"Warning: {ticker.contract.localSymbol} open interest is nan. last = {ticker.last}, market price = {ticker.marketPrice()}, bid = {ticker.bid}, ask = {ticker.ask}")
-                    continue
+                    # if (ticker.contract.right == "C" and math.isnan(ticker.callOpenInterest)) or (ticker.contract.right == "P" and math.isnan(ticker.putOpenInterest)):
+                    #     print(f"Warning: {ticker.contract.localSymbol} open interest is nan. last = {ticker.last}, market price = {ticker.marketPrice()}, bid = {ticker.bid}, ask = {ticker.ask}, right = {ticker.contract.right}, callOI = {ticker.callOpenInterest}, putOI = {ticker.putOpenInterest}")
+                    #     continue
 
-                # .{PREFIX}{YYMMDD}{C | P}{STRIKE}, eg. .SPXW251219C6000
-                exp = ticker.contract.lastTradeDateOrContractMonth[2:]
-                key = f".{config["option_prefix"]}{exp}{ticker.contract.right}{ticker.contract.strike}"
-                if key not in data:
-                    data[key] = {}
+                    # .{PREFIX}{YYMMDD}{C | P}{STRIKE}, eg. .SPXW251219C6000
+                    exp = ticker.contract.lastTradeDateOrContractMonth[2:]
+                    right = ticker.contract.right
+                    right_index = ticker.contract.localSymbol.rfind("C") if right == "C" else ticker.contract.localSymbol.rfind("P")
+                    strike = ticker.contract.localSymbol[right_index+1:]
+                    key = f".{config["option_prefix"]}{exp}{right}{ticker.contract.strike}"
+                    keyY = f"{config["option_prefix"]}{exp}{right}{strike}"
 
-                # print(key, ticker.modelGreeks)
+                    # print(key, ticker.modelGreeks)
 
-                data[key]["gamma"] = ticker.modelGreeks.gamma
-                data[key]["delta"] = ticker.modelGreeks.delta
-                data[key]["iv"] = ticker.modelGreeks.impliedVol
-                if ticker.contract.right == "C":
-                    data[key]["oi"] = ticker.callOpenInterest
-                else:
-                    data[key]["oi"] = ticker.putOpenInterest
-                data[key]["volume"] = ticker.volume
+                    data[key]["gamma"] = ticker.modelGreeks.gamma
+                    data[key]["delta"] = ticker.modelGreeks.delta
+                    data[key]["iv"] = ticker.modelGreeks.impliedVol
+                    if ticker.contract.right == "C":
+                        # data[key]["oi"] = ticker.callOpenInterest
+                        data[key]["oi"] = list((option_dataY.calls.loc[option_dataY.calls['contractSymbol'] == keyY])['openInterest'])[0]
 
-        for contract in option_contracts:
-            ib.cancelMktData(contract)
+                    else:
+                        # data[key]["oi"] = ticker.putOpenInterest
+                        data[key]["oi"] = list((option_dataY.puts.loc[option_dataY.puts['contractSymbol'] == keyY])['openInterest'])[0]
+                    if data[key]["oi"] == 0:
+                        print(f"Warning: {ticker.contract.localSymbol} open interest is 0")
+                    data[key]["volume"] = ticker.volume
+
+            for contract in option_contracts[l:r]:
+                ib.cancelMktData(contract)
+
+            await asyncio.sleep(0.5)
+
+            l += size
+            r = r+size if r+size<len(option_contracts) else len(option_contracts)
 
         ib.disconnect()
         print("Disconnected")
